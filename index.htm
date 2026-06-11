@@ -1,0 +1,504 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HearTogether - Live Collaborative Network</title>
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <style>
+        :root {
+            --bg-color: #f4f6f9;
+            --card-color: #ffffff;
+            --text-color: #333333;
+            --primary-color: #007bff;
+            --highlight-color: #fff3cd;
+            --highlight-border: #ffeba2;
+            --whisper-bg: #e2f0fe;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        /* 1. LOGIN SCREEN STYLING */
+        #setup-screen {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            flex: 1;
+            padding: 20px;
+        }
+
+        .card {
+            background: var(--card-color);
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+            width: 100%;
+            max-width: 400px;
+            box-sizing: border-box;
+        }
+
+        input, button, textarea {
+            width: 100%;
+            padding: 12px;
+            margin: 10px 0;
+            border-radius: 8px;
+            border: 1px solid #ccc;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+
+        button {
+            background-color: var(--primary-color);
+            color: white;
+            border: none;
+            font-weight: bold;
+            cursor: pointer;
+        }
+
+        /* 2. MAIN APPLICATION SCREEN STYLING */
+        #app-screen {
+            display: none;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        header {
+            background-color: var(--card-color);
+            padding: 15px;
+            border-bottom: 1px solid #e0e0e0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        #conversation-box {
+            flex: 1;
+            padding: 15px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            background: var(--card-color);
+            padding: 12px;
+            border-radius: 8px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            max-width: 85%;
+        }
+
+        .message.mentioned {
+            background-color: var(--highlight-color);
+            border: 1px solid var(--highlight-border);
+        }
+
+        .message.private {
+            background-color: var(--whisper-bg);
+            border-left: 4px solid var(--primary-color);
+        }
+
+        .sender {
+            font-weight: bold;
+            font-size: 14px;
+            color: #666;
+            margin-bottom: 4px;
+            cursor: pointer;
+        }
+
+        .sender:hover {
+            color: var(--primary-color);
+            text-decoration: underline;
+        }
+
+        .meta-tag {
+            font-size: 11px;
+            color: var(--primary-color);
+            font-weight: bold;
+            text-transform: uppercase;
+        }
+
+        footer {
+            background: var(--card-color);
+            padding: 15px;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            color: #555;
+        }
+
+        #speech-status-indicator {
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .text-box-row {
+            width: 100%;
+        }
+
+        /* Taller Multi-line Teleprompter Window */
+        #message-input {
+            width: 100%;
+            height: 75px; 
+            margin: 0;
+            padding: 12px;
+            border: 1px solid #bbb;
+            border-radius: 12px;
+            font-size: 18px; 
+            box-sizing: border-box;
+            background-color: #fafafa;
+            font-family: inherit;
+            resize: none; 
+            overflow-y: auto; 
+        }
+
+        .button-action-row {
+            display: flex;
+            gap: 12px;
+            width: 100%;
+        }
+
+        .action-btn {
+            flex: 1; 
+            margin: 0;
+            padding: 16px;
+            border-radius: 25px;
+            font-size: 16px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #mic-button { background-color: #dc3545; }
+        #mic-button.recording { background-color: #ffc107; color: black; }
+        #send-btn { background-color: #28a745; transition: all 0.2s ease; }
+        #send-btn.waiting-mode { background-color: #6c757d; opacity: 0.6; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+
+    <div id="setup-screen">
+        <div class="card">
+            <h2>Join Environment</h2>
+            <input type="text" id="username" placeholder="Enter your name">
+            <input type="text" id="room-id" placeholder="Environment ID" value="Room 101">
+            <button onclick="joinApp()">Connect to App</button>
+        </div>
+    </div>
+
+    <div id="app-screen">
+        <header>
+            <div>
+                <strong id="display-room">Room</strong> | 
+                <span id="display-user">User</span>
+            </div>
+            <button onclick="leaveApp()" style="width: auto; margin: 0; padding: 6px 12px; font-size: 12px; background: #6c757d;">Leave</button>
+        </header>
+
+        <div id="conversation-box"></div>
+
+        <footer>
+            <div class="status-row">
+                <div id="target-indicator">
+                    Speaking to: <strong>Everyone</strong> 
+                    <span id="clear-target" style="color:red; cursor:pointer; display:none; margin-left:10px;">[Clear Private]</span>
+                </div>
+                <div id="speech-status-indicator" style="color: #666;">
+                    <span>⚪</span> Mic is Off
+                </div>
+            </div>
+            
+            <div class="text-box-row">
+                <textarea id="message-input" placeholder="Type or use mic to preview text..."></textarea>
+            </div>
+
+            <div class="button-action-row">
+                <button id="mic-button" class="action-btn" onclick="toggleMicrophone()">🎙️ Talk</button>
+                <button id="send-btn" class="action-btn" onclick="commitMessage()">Send 🚀</button>
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // ⚠️ CRITICAL CONFIG: DROP YOUR COPIED DETAILS INSIDE THESE QUOTES
+        const SUPABASE_URL = "https://xzgudfjyvxmlfumjrqzt.supabase.co/rest/v1/"; 
+        const SUPABASE_ANON_KEY = "sb_publishable_zIET8x_czbSKTB7506HTgA_9aG5h5lY";
+
+        // Map the secure cloud client handler
+        const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+
+        let myName = "";
+        let myRoom = "";
+        let speakTarget = "Everyone"; 
+        let isRecording = false;
+        let recognition;
+        
+        let accumulatedText = ""; 
+        let isProcessingSpeech = false;
+        let pendingSendTrigger = false;
+        let myChannel = null;
+
+        // Native System Speech-to-Text Driver Engine
+        if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+            const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
+            recognition = new SpeechRecognition();
+            recognition.continuous = true; 
+            recognition.interimResults = true; 
+            recognition.lang = 'en-US';
+
+            // Triggers visually the instant sound waves hit the microphone
+            recognition.onsoundstart = function() {
+                if (isRecording) {
+                    isProcessingSpeech = true;
+                    updateVisualStatus("⚡ Processing speech...", "#d39e00");
+                }
+            };
+
+            recognition.onresult = function(event) {
+                isProcessingSpeech = true;
+                updateVisualStatus("⚡ Processing speech...", "#d39e00");
+
+                let interimTranscript = '';
+                let finalTranscript = '';
+
+                for (let i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        finalTranscript += event.results[i][0].transcript;
+                    } else {
+                        interimTranscript += event.results[i][0].transcript;
+                    }
+                }
+
+                const currentPhrase = finalTranscript || interimTranscript;
+                if (currentPhrase.trim().length > 0) {
+                    const inputField = document.getElementById('message-input');
+                    inputField.value = accumulatedText ? (accumulatedText + " " + currentPhrase) : currentPhrase;
+                    
+                    // Keep bottom text visible (Teleprompter mode)
+                    inputField.scrollTop = inputField.scrollHeight;
+                }
+
+                if (pendingSendTrigger && finalTranscript) {
+                    executeFinalCommit();
+                }
+            };
+
+            recognition.onend = function() {
+                isProcessingSpeech = false;
+                accumulatedText = document.getElementById('message-input').value.trim();
+                if (isRecording) {
+                    updateVisualStatus("🟢 Waiting for voice...", "#28a745");
+                    try { recognition.start(); } catch(e){}
+                } else {
+                    updateVisualStatus("⚪ Mic is Off", "#666");
+                }
+            };
+        }
+
+        function updateVisualStatus(text, color) {
+            const indicator = document.getElementById('speech-status-indicator');
+            let icon = text.includes("Waiting") ? "🟢" : (text.includes("Processing") ? "🟡" : "⚪");
+            indicator.style.color = color;
+            indicator.innerHTML = `<span>${icon}</span> ${text}`;
+        }
+
+        // ACCOUNT LOGON & SECURE NETWORK CHANNEL BINDING
+        function joinApp() {
+            myName = document.getElementById('username').value.trim();
+            myRoom = document.getElementById('room-id').value.trim();
+
+            if (!myName || !myRoom) {
+                alert("Please enter both a name and a room ID.");
+                return;
+            }
+
+            document.getElementById('display-room').innerText = myRoom;
+            document.getElementById('display-user').innerText = myName;
+            document.getElementById('setup-screen').style.display = 'none';
+            document.getElementById('app-screen').style.display = 'flex';
+
+            const sanitizedRoom = myRoom.replace(/\s+/g, '-').toLowerCase();
+            
+            // Connect to your open publication channel
+            myChannel = supabaseClient.channel(`room:${sanitizedRoom}`, {
+                config: {
+                    broadcast: { self: true } // Echo text back locally via server confirm
+                }
+            });
+
+            // Handle data streaming down from the cloud infrastructure
+            myChannel
+                .on('broadcast', { event: 'message' }, (payload) => {
+                    receiveMessage(payload.payload);
+                })
+                .subscribe((status) => {
+                    if (status === 'SUBSCRIBED') {
+                        receiveMessage({
+                            sender: "System",
+                            text: `🚀 Connected Globally! Room "${myRoom}" is open and ready across devices.`
+                        });
+                    } else {
+                        receiveMessage({
+                            sender: "System",
+                            text: `⚠️ Network Alert: Room initialization status is "${status}".`
+                        });
+                    }
+                });
+            
+            document.getElementById('message-input').addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    commitMessage();
+                }
+            });
+        }
+
+        function toggleMicrophone() {
+            if (!recognition) return;
+            const btn = document.getElementById('mic-button');
+            if (!isRecording) {
+                isRecording = true;
+                btn.classList.add('recording');
+                btn.innerText = "🛑 Stop";
+                accumulatedText = document.getElementById('message-input').value.trim();
+                updateVisualStatus("🟢 Waiting for voice...", "#28a745");
+                recognition.start();
+            } else {
+                isRecording = false;
+                btn.classList.remove('recording');
+                btn.innerText = "🎙️ Talk";
+                isProcessingSpeech = false;
+                recognition.stop();
+                updateVisualStatus("⚪ Mic is Off", "#666");
+                accumulatedText = document.getElementById('message-input').value.trim();
+            }
+        }
+
+        function commitMessage() {
+            const sendBtn = document.getElementById('send-btn');
+            // Word-Catcher Safeguard: hold execution if user presses send while still speaking
+            if (isRecording && isProcessingSpeech) {
+                pendingSendTrigger = true;
+                sendBtn.classList.add('waiting-mode');
+                sendBtn.innerText = "⌛ Catching words...";
+                setTimeout(function() { executeFinalCommit(); }, 650);
+                return;
+            }
+            executeFinalCommit();
+        }
+
+        function executeFinalCommit() {
+            const inputField = document.getElementById('message-input');
+            const messageText = inputField.value.trim();
+
+            document.getElementById('send-btn').classList.remove('waiting-mode');
+            document.getElementById('send-btn').innerText = "Send 🚀";
+
+            if (messageText.length === 0) return;
+
+            const payload = {
+                sender: myName,
+                text: messageText,
+                target: speakTarget || "Everyone"
+            };
+
+            // Dispatches packet straight up to Supabase publication handler
+            if (myChannel) {
+                myChannel.send({
+                    type: 'broadcast',
+                    event: 'message',
+                    payload: payload
+                });
+            }
+            
+            inputField.value = "";
+            accumulatedText = "";
+            if (isRecording) { toggleMicrophone(); }
+        }
+
+        function receiveMessage(data) {
+            const box = document.getElementById('conversation-box');
+            
+            if (data.sender === "System") {
+                const sysDiv = document.createElement('div');
+                sysDiv.style.cssText = "background:#e9ecef; padding:10px; border-radius:8px; font-size:13px; text-align:center;";
+                sysDiv.innerHTML = `<strong>${data.text}</strong>`;
+                box.appendChild(sysDiv);
+                box.scrollTop = box.scrollHeight;
+                return;
+            }
+
+            // High-Security Private Filter Logic
+            if (data.target && data.target !== "Everyone" && data.target !== myName && data.sender !== myName) {
+                return; 
+            }
+
+            const msgDiv = document.createElement('div');
+            msgDiv.classList.add('message');
+
+            const nameRegex = new RegExp(`\\b${myName}\\b`, 'i');
+            if (data.target === "Everyone" && nameRegex.test(data.text) && data.sender !== myName) {
+                msgDiv.classList.add('mentioned');
+            }
+
+            if (data.target && data.target !== "Everyone") {
+                msgDiv.classList.add('private');
+                const tag = document.createElement('div');
+                tag.classList.add('meta-tag');
+                tag.innerText = `🔒 Private Whisper to ${data.target}`;
+                msgDiv.appendChild(tag);
+            }
+
+            const senderSpan = document.createElement('div');
+            senderSpan.classList.add('sender');
+            senderSpan.innerText = data.sender;
+            if (data.sender !== myName) {
+                senderSpan.onclick = function() { setPrivateTarget(data.sender); };
+            }
+
+            const textSpan = document.createElement('span');
+            textSpan.innerText = data.text;
+
+            msgDiv.appendChild(senderSpan);
+            msgDiv.appendChild(textSpan);
+            box.appendChild(msgDiv);
+            box.scrollTop = box.scrollHeight;
+        }
+
+        function setPrivateTarget(name) {
+            speakTarget = name;
+            document.getElementById('target-indicator').innerHTML = `Speaking to: <span style="color:#007bff;">🔒 Private to ${name}</span>`;
+            document.getElementById('clear-target').style.display = 'inline';
+        }
+
+        document.getElementById('clear-target').onclick = function() {
+            speakTarget = "Everyone";
+            document.getElementById('target-indicator').innerHTML = `Speaking to: <strong>Everyone</strong>`;
+            document.getElementById('clear-target').style.display = 'none';
+        };
+
+        function leaveApp() { location.reload(); }
+    </script>
+</body>
+</html>
