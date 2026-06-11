@@ -303,12 +303,7 @@
                     
                     // FIXED TELEPROMPTER SCROLL: Forces the layout to track the newest word
                     inputField.scrollTop = inputField.scrollHeight;
-                }
-
-                // Only commit automatically if we are intentionally waiting for a voice-activation flag
-                if (pendingSendTrigger && finalTranscript) {
-                    executeFinalCommit();
-                }
+                
             };
 
             recognition.onend = function() {
