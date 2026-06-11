@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HearTogether - Live Collaborative Network</title>
-    <!-- PRODUCTION CLOUD ENGINE LIBRARY -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
@@ -199,7 +198,6 @@
 </head>
 <body>
 
-    <!-- 1. LOGIN SCREEN CONTAINER -->
     <div id="setup-screen">
         <div class="card">
             <h2>Join Environment</h2>
@@ -209,7 +207,6 @@
         </div>
     </div>
 
-    <!-- 2. MAIN APPLICATION WORKSPACE -->
     <div id="app-screen">
         <header>
             <div>
@@ -245,8 +242,8 @@
 
     <script>
         // ⚠️ CRITICAL CONFIG: PASTE YOUR VERIFIED SUPABASE INFO HERE
-        const SUPABASE_URL = "https://xzgudfjyvxmlfumjrqzt.supabase.co"; 
-        const SUPABASE_ANON_KEY = "sb_publishable_zIET8x_czbSKTB7506HTgA_9aG5h5lY";
+        const SUPABASE_URL = "https://your-project-id.supabase.co"; 
+        const SUPABASE_ANON_KEY = "your-actual-publishable-anon-key";
 
         // Initialize the secure cloud wrapper
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
@@ -293,24 +290,23 @@
                     }
                 }
 
-                const currentPhrase = finalTranscript || interimTranscript;
-                if (currentPhrase.trim().length > 0) {
-                    const inputField = document.getElementById('message-input');
-                    
-                    // Display text syllable-by-syllable live
-                    inputField.value = accumulatedText ? (accumulatedText + " " + currentPhrase) : currentPhrase;
-                    
-                    // Keep text layout tracking downward smoothly (Teleprompter mode)
-                    inputField.scrollTop = inputField.scrollHeight;
-                }
+                // Dynamic live tracking of typed text combined with active speech session data
+                const currentInputField = document.getElementById('message-input');
                 
-                // NOTE: Auto-commit on finalTranscript completely removed from here!
+                // Read what's physically in the box right now to account for manual edits
+                let activeBaseText = accumulatedText.trim();
+                let transcriptionChunk = (finalTranscript || interimTranscript).trim();
+
+                if (transcriptionChunk.length > 0) {
+                    currentInputField.value = activeBaseText ? (activeBaseText + " " + transcriptionChunk) : transcriptionChunk;
+                    currentInputField.scrollTop = currentInputField.scrollHeight;
+                }
             };
 
             recognition.onend = function() {
                 isProcessingSpeech = false;
                 
-                // Save text safe in place during silent breaks or microphone cycling
+                // CRITICAL FIX: Lock down text into memory when system loops or user pauses
                 accumulatedText = document.getElementById('message-input').value.trim();
                 
                 if (isRecording) {
@@ -401,7 +397,6 @@
         }
 
         function commitMessage() {
-            // Fires immediately when Send is manually tapped
             executeFinalCommit();
         }
 
@@ -425,14 +420,9 @@
                 });
             }
             
-            // Clean up text field queue
+            // Text boxes are ONLY wiped here after successfully firing out a manual submission
             inputField.value = "";
             accumulatedText = "";
-            
-            // Keep mic active for seamless conversation flow if recording was on
-            if (isRecording) {
-                accumulatedText = "";
-            }
         }
 
         function receiveMessage(data) {
