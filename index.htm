@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HearTogether - Live Collaborative Network</title>
+    <!-- PRODUCTION CLOUD ENGINE LIBRARY -->
     <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
     <style>
         :root {
@@ -27,7 +28,7 @@
             height: 100vh;
         }
 
-        /* 1. LOGIN SCREEN STYLING */
+        /* LOGIN SCREEN STYLING */
         #setup-screen {
             display: flex;
             flex-direction: column;
@@ -65,7 +66,7 @@
             cursor: pointer;
         }
 
-        /* 2. MAIN APPLICATION SCREEN STYLING */
+        /* MAIN APPLICATION SCREEN STYLING */
         #app-screen {
             display: none;
             flex-direction: column;
@@ -156,7 +157,7 @@
             width: 100%;
         }
 
-        /* Taller Multi-line Teleprompter Window */
+        /* Teleprompter Preview Window */
         #message-input {
             width: 100%;
             height: 75px; 
@@ -198,6 +199,7 @@
 </head>
 <body>
 
+    <!-- 1. LOGIN SCREEN CONTAINER -->
     <div id="setup-screen">
         <div class="card">
             <h2>Join Environment</h2>
@@ -207,6 +209,7 @@
         </div>
     </div>
 
+    <!-- 2. MAIN APPLICATION WORKSPACE -->
     <div id="app-screen">
         <header>
             <div>
@@ -241,11 +244,11 @@
     </div>
 
     <script>
-        // ⚠️ CRITICAL CONFIG: DROP YOUR COPIED DETAILS INSIDE THESE QUOTES
+        // ⚠️ CRITICAL CONFIG: PASTE YOUR VERIFIED SUPABASE INFO HERE
         const SUPABASE_URL = "https://xzgudfjyvxmlfumjrqzt.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_zIET8x_czbSKTB7506HTgA_9aG5h5lY";
 
-        // Map the secure cloud client handler
+        // Initialize the secure cloud wrapper
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let myName = "";
@@ -256,11 +259,9 @@
         
         let accumulatedText = ""; 
         let isProcessingSpeech = false;
-        let pendingSendTrigger = false;
         let myChannel = null;
 
         // Native System Speech-to-Text Driver Engine
-       // FIXED Native System Speech-to-Text Driver Engine
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
             recognition = new SpeechRecognition();
@@ -284,7 +285,6 @@
                 let interimTranscript = '';
                 let finalTranscript = '';
 
-                // Gather both finished sentences and words actively in mid-air
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript;
@@ -293,24 +293,24 @@
                     }
                 }
 
-                // FIXED: Instantly map ANY incoming text fragment to the window so you see it live
                 const currentPhrase = finalTranscript || interimTranscript;
                 if (currentPhrase.trim().length > 0) {
                     const inputField = document.getElementById('message-input');
                     
-                    // Layer the fresh speech on top of any text already typed
+                    // Display text syllable-by-syllable live
                     inputField.value = accumulatedText ? (accumulatedText + " " + currentPhrase) : currentPhrase;
                     
-                    // FIXED TELEPROMPTER SCROLL: Forces the layout to track the newest word
+                    // Keep text layout tracking downward smoothly (Teleprompter mode)
                     inputField.scrollTop = inputField.scrollHeight;
+                }
                 
+                // NOTE: Auto-commit on finalTranscript completely removed from here!
             };
 
             recognition.onend = function() {
                 isProcessingSpeech = false;
                 
-                // FIXED: Save whatever words are currently sitting in the preview box 
-                // so they don't get wiped out when the mic cycles open or closed
+                // Save text safe in place during silent breaks or microphone cycling
                 accumulatedText = document.getElementById('message-input').value.trim();
                 
                 if (isRecording) {
@@ -321,6 +321,7 @@
                 }
             };
         }
+
         function updateVisualStatus(text, color) {
             const indicator = document.getElementById('speech-status-indicator');
             let icon = text.includes("Waiting") ? "🟢" : (text.includes("Processing") ? "🟡" : "⚪");
@@ -345,14 +346,13 @@
 
             const sanitizedRoom = myRoom.replace(/\s+/g, '-').toLowerCase();
             
-            // Connect to your open publication channel
+            // Link into the real-time stream engine
             myChannel = supabaseClient.channel(`room:${sanitizedRoom}`, {
                 config: {
-                    broadcast: { self: true } // Echo text back locally via server confirm
+                    broadcast: { self: true }
                 }
             });
 
-            // Handle data streaming down from the cloud infrastructure
             myChannel
                 .on('broadcast', { event: 'message' }, (payload) => {
                     receiveMessage(payload.payload);
@@ -401,24 +401,13 @@
         }
 
         function commitMessage() {
-            const sendBtn = document.getElementById('send-btn');
-            // Word-Catcher Safeguard: hold execution if user presses send while still speaking
-            if (isRecording && isProcessingSpeech) {
-                pendingSendTrigger = true;
-                sendBtn.classList.add('waiting-mode');
-                sendBtn.innerText = "⌛ Catching words...";
-                setTimeout(function() { executeFinalCommit(); }, 650);
-                return;
-            }
+            // Fires immediately when Send is manually tapped
             executeFinalCommit();
         }
 
         function executeFinalCommit() {
             const inputField = document.getElementById('message-input');
             const messageText = inputField.value.trim();
-
-            document.getElementById('send-btn').classList.remove('waiting-mode');
-            document.getElementById('send-btn').innerText = "Send 🚀";
 
             if (messageText.length === 0) return;
 
@@ -428,7 +417,6 @@
                 target: speakTarget || "Everyone"
             };
 
-            // Dispatches packet straight up to Supabase publication handler
             if (myChannel) {
                 myChannel.send({
                     type: 'broadcast',
@@ -437,9 +425,14 @@
                 });
             }
             
+            // Clean up text field queue
             inputField.value = "";
             accumulatedText = "";
-            if (isRecording) { toggleMicrophone(); }
+            
+            // Keep mic active for seamless conversation flow if recording was on
+            if (isRecording) {
+                accumulatedText = "";
+            }
         }
 
         function receiveMessage(data) {
@@ -454,7 +447,6 @@
                 return;
             }
 
-            // High-Security Private Filter Logic
             if (data.target && data.target !== "Everyone" && data.target !== myName && data.sender !== myName) {
                 return; 
             }
