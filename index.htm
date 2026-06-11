@@ -260,6 +260,7 @@
         let myChannel = null;
 
         // Native System Speech-to-Text Driver Engine
+       // FIXED Native System Speech-to-Text Driver Engine
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
             recognition = new SpeechRecognition();
@@ -267,7 +268,6 @@
             recognition.interimResults = true; 
             recognition.lang = 'en-US';
 
-            // Triggers visually the instant sound waves hit the microphone
             recognition.onsoundstart = function() {
                 if (isRecording) {
                     isProcessingSpeech = true;
@@ -276,12 +276,15 @@
             };
 
             recognition.onresult = function(event) {
+                if (!isRecording) return;
+                
                 isProcessingSpeech = true;
                 updateVisualStatus("⚡ Processing speech...", "#d39e00");
 
                 let interimTranscript = '';
                 let finalTranscript = '';
 
+                // Gather both finished sentences and words actively in mid-air
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
                         finalTranscript += event.results[i][0].transcript;
@@ -290,15 +293,19 @@
                     }
                 }
 
+                // FIXED: Instantly map ANY incoming text fragment to the window so you see it live
                 const currentPhrase = finalTranscript || interimTranscript;
                 if (currentPhrase.trim().length > 0) {
                     const inputField = document.getElementById('message-input');
+                    
+                    // Layer the fresh speech on top of any text already typed
                     inputField.value = accumulatedText ? (accumulatedText + " " + currentPhrase) : currentPhrase;
                     
-                    // Keep bottom text visible (Teleprompter mode)
+                    // FIXED TELEPROMPTER SCROLL: Forces the layout to track the newest word
                     inputField.scrollTop = inputField.scrollHeight;
                 }
 
+                // Only commit automatically if we are intentionally waiting for a voice-activation flag
                 if (pendingSendTrigger && finalTranscript) {
                     executeFinalCommit();
                 }
@@ -306,7 +313,11 @@
 
             recognition.onend = function() {
                 isProcessingSpeech = false;
+                
+                // FIXED: Save whatever words are currently sitting in the preview box 
+                // so they don't get wiped out when the mic cycles open or closed
                 accumulatedText = document.getElementById('message-input').value.trim();
+                
                 if (isRecording) {
                     updateVisualStatus("🟢 Waiting for voice...", "#28a745");
                     try { recognition.start(); } catch(e){}
@@ -315,7 +326,6 @@
                 }
             };
         }
-
         function updateVisualStatus(text, color) {
             const indicator = document.getElementById('speech-status-indicator');
             let icon = text.includes("Waiting") ? "🟢" : (text.includes("Processing") ? "🟡" : "⚪");
