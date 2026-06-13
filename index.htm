@@ -289,7 +289,7 @@
         let isProcessingSpeech = false;
         let myChannel = null;
 
-        // FLOOR CONTROL TIMESTAMPS
+        // FIXED FLOOR CONTROL STATE
         let currentFloorHolder = null;
         let silenceTimer = null;
         let myFloorToken = null; 
@@ -301,18 +301,10 @@
             recognition.interimResults = true; 
             recognition.lang = 'en-US';
 
-            // MOBILE SAFE ENTRYPOINT: Only grab timestamps when audio stream is physically active
             recognition.onsoundstart = function() {
                 if (isRecording) {
                     isProcessingSpeech = true;
                     updateVisualStatus("⚡ Processing speech...", "#d39e00");
-                    
-                    // Generate token here to prevent mobile hardware authorization lag bugs
-                    if (!myFloorToken) {
-                        myFloorToken = Date.now();
-                        currentFloorHolder = myName;
-                        broadcastPreview(document.getElementById('message-input').value || "...");
-                    }
                     resetSilenceTimer();
                 }
             };
@@ -335,7 +327,7 @@
                     }
                 }
 
-                // MOBILE DUPLICATION FILTER GUARD
+                // MOBILE DUPLICATION FILTER
                 if (newlyFinalizedTranscript.length > 0) {
                     let cleanChunk = newlyFinalizedTranscript.trim().replace(/\s+/g, ' ');
                     let cleanStable = stableText.trim().replace(/\s+/g, ' ');
@@ -353,12 +345,18 @@
                     currentInputField.scrollTop = currentInputField.scrollHeight;
                 }
 
-                broadcastPreview(currentInputField.value);
+                // Send layout update out to the room
+                broadcastPreview(currentInputField.value || "...");
             };
 
             recognition.onend = function() {
                 isProcessingSpeech = false;
-                accumulatedText = document.getElementById('message-input').value.trim();
+                
+                // Keep historical text intact when mobile engines drop connection streams
+                const currentBoxVal = document.getElementById('message-input').value.trim();
+                if (currentBoxVal.length > 0) {
+                    accumulatedText = currentBoxVal;
+                }
                 
                 if (isRecording) {
                     updateVisualStatus("🟢 Waiting for voice...", "#28a745");
@@ -409,7 +407,7 @@
                     if (status === 'SUBSCRIBED') {
                         receiveMessage({
                             sender: "System",
-                            text: `🚀 Connected Globally! Ready for clean desktop and mobile use.`
+                            text: `🚀 Connected Globally! Solidified room floor locks online.`
                         });
                     } else {
                         receiveMessage({
@@ -433,9 +431,9 @@
             const text = document.getElementById('message-input').value;
             stableText = text; 
             
-            if (!currentFloorHolder && text.trim().length > 0) {
-                currentFloorHolder = myName;
+            if (!myFloorToken && text.trim().length > 0) {
                 myFloorToken = Date.now();
+                currentFloorHolder = myName;
             }
             
             broadcastPreview(text);
@@ -469,12 +467,12 @@
             if (data.sender === myName) return; 
 
             if (data.text.trim().length > 0) {
-                // If we face a simultaneous race collision conflict, compare timestamps
+                // If there's an active race condition, evaluate tokens
                 if (myFloorToken && data.token) {
                     if (myFloorToken < data.token) {
-                        return; // I started first, protect my floor state
+                        return; // My lock was generated first. Disregard theirs.
                     } else {
-                        // They have earlier millisecond priority, safely drop off
+                        // Their token is older/first. Yield immediately.
                         turnOffMicrophoneEngine();
                         myFloorToken = null;
                     }
@@ -511,6 +509,7 @@
             clearTimeout(silenceTimer);
             if (isRecording) {
                 silenceTimer = setTimeout(() => {
+                    console.log("Auto-commiting due to 5 seconds of silence.");
                     commitMessage();
                 }, 5000); 
             }
@@ -520,6 +519,10 @@
             if (!recognition) return;
             const btn = document.getElementById('mic-button');
             if (!isRecording) {
+                // LOCK THE FLOOR TOKEN IMMEDIATELY ON TAP (Never in the loop events)
+                myFloorToken = Date.now();
+                currentFloorHolder = myName;
+
                 isRecording = true;
                 btn.classList.add('recording');
                 btn.innerText = "🛑 Stop";
@@ -528,9 +531,11 @@
                 accumulatedText = stableText;
                 updateVisualStatus("🟢 Waiting for voice...", "#28a745");
                 
-                // Spin up mobile microphone hardware drivers safely first
                 recognition.start();
                 resetSilenceTimer();
+                
+                // Broadcast ownership out to network immediately
+                broadcastPreview(stableText || "...");
             } else {
                 turnOffMicrophoneEngine();
             }
@@ -545,7 +550,6 @@
             btn.classList.remove('recording');
             btn.innerText = "🎙️ Talk";
             isProcessingSpeech = false;
-            myFloorToken = null; // Instantly discard token on disconnect
             if (recognition) recognition.stop();
             updateVisualStatus("⚪ Mic is Off", "#666");
         }
