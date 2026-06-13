@@ -246,6 +246,7 @@
             <button onclick="leaveApp()" style="width: auto; margin: 0; padding: 6px 12px; font-size: 12px; background: #6c757d;">Leave</button>
         </header>
 
+        <!-- LIVE STREAM TELEPROMPTER FOR TARGET READABILITY -->
         <div id="live-preview-banner"></div>
 
         <div id="conversation-box"></div>
@@ -285,13 +286,14 @@
         let recognition;
         
         let accumulatedText = ""; 
-        let stableText = ""; // Holds finalized speech segments through engine recycles
+        let stableText = ""; 
         let isProcessingSpeech = false;
         let myChannel = null;
 
-        // FLOOR CONTROL VARIABLES
+        // ADVANCED FLOOR CONTROL & TIMESTAMPS
         let currentFloorHolder = null;
         let silenceTimer = null;
+        let myFloorToken = null; 
 
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
@@ -326,12 +328,18 @@
                     }
                 }
 
-                // Safely commit final phrases into stable memory
+                // MOBILE DUPLICATION FILTER GUARD
                 if (newlyFinalizedTranscript.length > 0) {
-                    stableText += newlyFinalizedTranscript;
+                    let cleanChunk = newlyFinalizedTranscript.trim().replace(/\s+/g, ' ');
+                    let cleanStable = stableText.trim().replace(/\s+/g, ' ');
+                    
+                    // Check if stableText already ends with this exact incoming mobile speech chunk
+                    if (!cleanStable.endsWith(cleanChunk) && !cleanChunk.endsWith(cleanStable.split(' ').pop())) {
+                        stableText += newlyFinalizedTranscript;
+                    }
                 }
 
-                // Construct full rendering by combining stable segments with processing interim text
+                // Construct full rendering smoothly without compounding text strings
                 const liveDisplay = (stableText + " " + interimTranscript).trim().replace(/\s+/g, ' ');
                 const currentInputField = document.getElementById('message-input');
                 
@@ -340,7 +348,6 @@
                     currentInputField.scrollTop = currentInputField.scrollHeight;
                 }
 
-                // BROADCAST LIVE TEXT IMMEDIATELY TO EVERYONE ELSE
                 broadcastPreview(currentInputField.value);
             };
 
@@ -397,7 +404,7 @@
                     if (status === 'SUBSCRIBED') {
                         receiveMessage({
                             sender: "System",
-                            text: `🚀 Connected Globally! Room "${myRoom}" is open. Orderly Floor Lock system is online.`
+                            text: `🚀 Connected Globally! Mobile transcription stabilizers enabled.`
                         });
                     } else {
                         receiveMessage({
@@ -417,29 +424,37 @@
             });
         }
 
-        // TRIGGER ON LIVE MANUAL TYPING FOR INCLUSIVE REDUNDANCY
         function handleManualTyping() {
             const text = document.getElementById('message-input').value;
-            // Sync current state to manual text edits if speech engine drops mid-typing
             stableText = text; 
+            
+            if (!currentFloorHolder && text.trim().length > 0) {
+                currentFloorHolder = myName;
+                myFloorToken = Date.now();
+            }
+            
             broadcastPreview(text);
         }
 
-        // DISPATCH FLOOR STATUS AND LIVE TEXT
         function broadcastPreview(textValue) {
             if (!myChannel) return;
+
+            if(textValue.trim().length === 0 && currentFloorHolder === myName) {
+                myFloorToken = null;
+                currentFloorHolder = null;
+            }
 
             myChannel.send({
                 type: 'broadcast',
                 event: 'typing-preview',
                 payload: {
                     sender: myName,
-                    text: textValue
+                    text: textValue,
+                    token: myFloorToken 
                 }
             });
         }
 
-        // LISTEN AND ENFORCE EXCLUSIVE CONVERSATION ORDER LOCK
         function handleIncomingPreview(data) {
             const previewBanner = document.getElementById('live-preview-banner');
             const msgInput = document.getElementById('message-input');
@@ -449,18 +464,24 @@
             if (data.sender === myName) return; 
 
             if (data.text.trim().length > 0) {
-                // LOCK THE FLOOR FOR EVERYONE ELSE
+                if (myFloorToken && data.token) {
+                    if (myFloorToken < data.token) {
+                        return;
+                    } else {
+                        turnOffMicrophoneEngine();
+                        myFloorToken = null;
+                    }
+                }
+
                 currentFloorHolder = data.sender;
                 previewBanner.style.display = "block";
                 previewBanner.innerHTML = `<strong>🗣️ ${data.sender} talking live:</strong> ${data.text}`;
                 
-                // Disable UI inputs for everyone else
                 msgInput.disabled = true;
                 micBtn.disabled = true;
                 sendBtn.disabled = true;
                 msgInput.placeholder = `${data.sender} has the floor...`;
             } else {
-                // RELEASE THE FLOOR IF THE SPEAKER DELETES/CLEARS THE PREVIEW TEXT
                 if(currentFloorHolder === data.sender) {
                     releaseFloorUI();
                 }
@@ -479,12 +500,10 @@
             msgInput.placeholder = "Type or use mic to preview text...";
         }
 
-        // 5-SECOND INACTIVITY WATCHDOG TIMER
         function resetSilenceTimer() {
             clearTimeout(silenceTimer);
             if (isRecording) {
                 silenceTimer = setTimeout(() => {
-                    console.log("5 seconds of silence detected. Auto-submitting speech stream...");
                     commitMessage();
                 }, 5000); 
             }
@@ -494,15 +513,19 @@
             if (!recognition) return;
             const btn = document.getElementById('mic-button');
             if (!isRecording) {
+                myFloorToken = Date.now(); 
+                currentFloorHolder = myName;
+
                 isRecording = true;
                 btn.classList.add('recording');
                 btn.innerText = "🛑 Stop";
-                // Seed baseline text from whatever is manually inside the box
                 stableText = document.getElementById('message-input').value;
                 accumulatedText = stableText;
                 updateVisualStatus("🟢 Waiting for voice...", "#28a745");
                 recognition.start();
                 resetSilenceTimer();
+                
+                broadcastPreview(stableText || "...");
             } else {
                 turnOffMicrophoneEngine();
             }
@@ -522,9 +545,7 @@
         }
 
         function commitMessage() {
-            // Turn off microphone automatically
             turnOffMicrophoneEngine();
-            // Process sending out the text payload
             executeFinalCommit();
         }
 
@@ -533,6 +554,7 @@
             const messageText = inputField.value.trim();
 
             if (messageText.length === 0) {
+                myFloorToken = null;
                 broadcastPreview("");
                 releaseFloorUI();
                 return;
@@ -550,24 +572,19 @@
                     event: 'message',
                     payload: payload
                 });
-                
-                // Explicitly send an empty preview out to release everybody's UI locks right away
+                myFloorToken = null;
                 broadcastPreview("");
             }
             
-            // CRITICAL RESET FIX: Zero out absolutely everything to wipe input fields clean
             inputField.value = "";
             accumulatedText = "";
             stableText = "";
-            
-            // Clean local UI floor locks 
             releaseFloorUI();
         }
 
         function receiveMessage(data) {
             const box = document.getElementById('conversation-box');
             
-            // Always clean floor constraints when a definitive finalized text payload drops in
             if (data.sender === currentFloorHolder || data.sender === myName) {
                 releaseFloorUI();
             }
