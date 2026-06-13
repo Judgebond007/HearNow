@@ -90,6 +90,26 @@
             gap: 12px;
         }
 
+        /* LIVE TELEPROMPTER PREVIEW BANNER */
+        #live-preview-banner {
+            display: none;
+            background-color: #fff3cd;
+            border-left: 5px solid #ffc107;
+            padding: 12px;
+            margin: 10px 15px;
+            border-radius: 6px;
+            font-size: 18px;
+            font-weight: 500;
+            color: #856404;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.9; }
+            50% { opacity: 1; }
+            100% { opacity: 0.9; }
+        }
+
         .message {
             background: var(--card-color);
             padding: 12px;
@@ -156,7 +176,6 @@
             width: 100%;
         }
 
-        /* Teleprompter Preview Window */
         #message-input {
             width: 100%;
             height: 75px; 
@@ -170,6 +189,12 @@
             font-family: inherit;
             resize: none; 
             overflow-y: auto; 
+        }
+
+        #message-input:disabled {
+            background-color: #e9ecef;
+            cursor: not-allowed;
+            color: #6c757d;
         }
 
         .button-action-row {
@@ -190,10 +215,15 @@
             gap: 8px;
         }
 
-        #mic-button { background-color: #dc3545; }
-        #mic-button.recording { background-color: #ffc107; color: black; }
+        .action-btn:disabled {
+            background-color: #6c757d !important;
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        #mic-button { background-color: #007bff; }
+        #mic-button.recording { background-color: #dc3545; color: white; }
         #send-btn { background-color: #28a745; transition: all 0.2s ease; }
-        #send-btn.waiting-mode { background-color: #6c757d; opacity: 0.6; cursor: not-allowed; }
     </style>
 </head>
 <body>
@@ -216,6 +246,8 @@
             <button onclick="leaveApp()" style="width: auto; margin: 0; padding: 6px 12px; font-size: 12px; background: #6c757d;">Leave</button>
         </header>
 
+        <div id="live-preview-banner"></div>
+
         <div id="conversation-box"></div>
 
         <footer>
@@ -228,9 +260,9 @@
                     <span>⚪</span> Mic is Off
                 </div>
             </div>
-            
+             
             <div class="text-box-row">
-                <textarea id="message-input" placeholder="Type or use mic to preview text..."></textarea>
+                <textarea id="message-input" placeholder="Type or use mic to preview text..." oninput="handleManualTyping()"></textarea>
             </div>
 
             <div class="button-action-row">
@@ -241,11 +273,9 @@
     </div>
 
     <script>
-        // ⚠️ CRITICAL CONFIG: PASTE YOUR VERIFIED SUPABASE INFO HERE
         const SUPABASE_URL = "https://xzgudfjyvxmlfumjrqzt.supabase.co"; 
         const SUPABASE_ANON_KEY = "sb_publishable_zIET8x_czbSKTB7506HTgA_9aG5h5lY";
 
-        // Initialize the secure cloud wrapper
         const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
         let myName = "";
@@ -255,10 +285,14 @@
         let recognition;
         
         let accumulatedText = ""; 
+        let stableText = ""; // Holds finalized speech segments through engine recycles
         let isProcessingSpeech = false;
         let myChannel = null;
 
-        // Native System Speech-to-Text Driver Engine
+        // FLOOR CONTROL VARIABLES
+        let currentFloorHolder = null;
+        let silenceTimer = null;
+
         if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
             const SpeechRecognition = window.webkitSpeechRecognition || window.SpeechRecognition;
             recognition = new SpeechRecognition();
@@ -270,6 +304,7 @@
                 if (isRecording) {
                     isProcessingSpeech = true;
                     updateVisualStatus("⚡ Processing speech...", "#d39e00");
+                    resetSilenceTimer();
                 }
             };
 
@@ -278,35 +313,39 @@
                 
                 isProcessingSpeech = true;
                 updateVisualStatus("⚡ Processing speech...", "#d39e00");
+                resetSilenceTimer(); 
 
                 let interimTranscript = '';
-                let finalTranscript = '';
+                let newlyFinalizedTranscript = '';
 
                 for (let i = event.resultIndex; i < event.results.length; ++i) {
                     if (event.results[i].isFinal) {
-                        finalTranscript += event.results[i][0].transcript;
+                        newlyFinalizedTranscript += event.results[i][0].transcript + " ";
                     } else {
                         interimTranscript += event.results[i][0].transcript;
                     }
                 }
 
-                // Dynamic live tracking of typed text combined with active speech session data
+                // Safely commit final phrases into stable memory
+                if (newlyFinalizedTranscript.length > 0) {
+                    stableText += newlyFinalizedTranscript;
+                }
+
+                // Construct full rendering by combining stable segments with processing interim text
+                const liveDisplay = (stableText + " " + interimTranscript).trim().replace(/\s+/g, ' ');
                 const currentInputField = document.getElementById('message-input');
                 
-                // Read what's physically in the box right now to account for manual edits
-                let activeBaseText = accumulatedText.trim();
-                let transcriptionChunk = (finalTranscript || interimTranscript).trim();
-
-                if (transcriptionChunk.length > 0) {
-                    currentInputField.value = activeBaseText ? (activeBaseText + " " + transcriptionChunk) : transcriptionChunk;
+                if (liveDisplay.length > 0) {
+                    currentInputField.value = liveDisplay;
                     currentInputField.scrollTop = currentInputField.scrollHeight;
                 }
+
+                // BROADCAST LIVE TEXT IMMEDIATELY TO EVERYONE ELSE
+                broadcastPreview(currentInputField.value);
             };
 
             recognition.onend = function() {
                 isProcessingSpeech = false;
-                
-                // CRITICAL FIX: Lock down text into memory when system loops or user pauses
                 accumulatedText = document.getElementById('message-input').value.trim();
                 
                 if (isRecording) {
@@ -325,7 +364,6 @@
             indicator.innerHTML = `<span>${icon}</span> ${text}`;
         }
 
-        // ACCOUNT LOGON & SECURE NETWORK CHANNEL BINDING
         function joinApp() {
             myName = document.getElementById('username').value.trim();
             myRoom = document.getElementById('room-id').value.trim();
@@ -342,7 +380,6 @@
 
             const sanitizedRoom = myRoom.replace(/\s+/g, '-').toLowerCase();
             
-            // Link into the real-time stream engine
             myChannel = supabaseClient.channel(`room:${sanitizedRoom}`, {
                 config: {
                     broadcast: { self: true }
@@ -353,11 +390,14 @@
                 .on('broadcast', { event: 'message' }, (payload) => {
                     receiveMessage(payload.payload);
                 })
+                .on('broadcast', { event: 'typing-preview' }, (payload) => {
+                    handleIncomingPreview(payload.payload);
+                })
                 .subscribe((status) => {
                     if (status === 'SUBSCRIBED') {
                         receiveMessage({
                             sender: "System",
-                            text: `🚀 Connected Globally! Room "${myRoom}" is open and ready across devices.`
+                            text: `🚀 Connected Globally! Room "${myRoom}" is open. Orderly Floor Lock system is online.`
                         });
                     } else {
                         receiveMessage({
@@ -370,9 +410,84 @@
             document.getElementById('message-input').addEventListener('keydown', function(e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    commitMessage();
+                    if(!document.getElementById('send-btn').disabled) {
+                        commitMessage();
+                    }
                 }
             });
+        }
+
+        // TRIGGER ON LIVE MANUAL TYPING FOR INCLUSIVE REDUNDANCY
+        function handleManualTyping() {
+            const text = document.getElementById('message-input').value;
+            // Sync current state to manual text edits if speech engine drops mid-typing
+            stableText = text; 
+            broadcastPreview(text);
+        }
+
+        // DISPATCH FLOOR STATUS AND LIVE TEXT
+        function broadcastPreview(textValue) {
+            if (!myChannel) return;
+
+            myChannel.send({
+                type: 'broadcast',
+                event: 'typing-preview',
+                payload: {
+                    sender: myName,
+                    text: textValue
+                }
+            });
+        }
+
+        // LISTEN AND ENFORCE EXCLUSIVE CONVERSATION ORDER LOCK
+        function handleIncomingPreview(data) {
+            const previewBanner = document.getElementById('live-preview-banner');
+            const msgInput = document.getElementById('message-input');
+            const micBtn = document.getElementById('mic-button');
+            const sendBtn = document.getElementById('send-btn');
+
+            if (data.sender === myName) return; 
+
+            if (data.text.trim().length > 0) {
+                // LOCK THE FLOOR FOR EVERYONE ELSE
+                currentFloorHolder = data.sender;
+                previewBanner.style.display = "block";
+                previewBanner.innerHTML = `<strong>🗣️ ${data.sender} talking live:</strong> ${data.text}`;
+                
+                // Disable UI inputs for everyone else
+                msgInput.disabled = true;
+                micBtn.disabled = true;
+                sendBtn.disabled = true;
+                msgInput.placeholder = `${data.sender} has the floor...`;
+            } else {
+                // RELEASE THE FLOOR IF THE SPEAKER DELETES/CLEARS THE PREVIEW TEXT
+                if(currentFloorHolder === data.sender) {
+                    releaseFloorUI();
+                }
+            }
+        }
+
+        function releaseFloorUI() {
+            currentFloorHolder = null;
+            document.getElementById('live-preview-banner').style.display = "none";
+            document.getElementById('live-preview-banner').innerText = "";
+            
+            const msgInput = document.getElementById('message-input');
+            msgInput.disabled = false;
+            document.getElementById('mic-button').disabled = false;
+            document.getElementById('send-btn').disabled = false;
+            msgInput.placeholder = "Type or use mic to preview text...";
+        }
+
+        // 5-SECOND INACTIVITY WATCHDOG TIMER
+        function resetSilenceTimer() {
+            clearTimeout(silenceTimer);
+            if (isRecording) {
+                silenceTimer = setTimeout(() => {
+                    console.log("5 seconds of silence detected. Auto-submitting speech stream...");
+                    commitMessage();
+                }, 5000); 
+            }
         }
 
         function toggleMicrophone() {
@@ -382,21 +497,34 @@
                 isRecording = true;
                 btn.classList.add('recording');
                 btn.innerText = "🛑 Stop";
-                accumulatedText = document.getElementById('message-input').value.trim();
+                // Seed baseline text from whatever is manually inside the box
+                stableText = document.getElementById('message-input').value;
+                accumulatedText = stableText;
                 updateVisualStatus("🟢 Waiting for voice...", "#28a745");
                 recognition.start();
+                resetSilenceTimer();
             } else {
-                isRecording = false;
-                btn.classList.remove('recording');
-                btn.innerText = "🎙️ Talk";
-                isProcessingSpeech = false;
-                recognition.stop();
-                updateVisualStatus("⚪ Mic is Off", "#666");
-                accumulatedText = document.getElementById('message-input').value.trim();
+                turnOffMicrophoneEngine();
             }
         }
 
+        function turnOffMicrophoneEngine() {
+            clearTimeout(silenceTimer);
+            if (!isRecording) return;
+            
+            isRecording = false;
+            const btn = document.getElementById('mic-button');
+            btn.classList.remove('recording');
+            btn.innerText = "🎙️ Talk";
+            isProcessingSpeech = false;
+            if (recognition) recognition.stop();
+            updateVisualStatus("⚪ Mic is Off", "#666");
+        }
+
         function commitMessage() {
+            // Turn off microphone automatically
+            turnOffMicrophoneEngine();
+            // Process sending out the text payload
             executeFinalCommit();
         }
 
@@ -404,7 +532,11 @@
             const inputField = document.getElementById('message-input');
             const messageText = inputField.value.trim();
 
-            if (messageText.length === 0) return;
+            if (messageText.length === 0) {
+                broadcastPreview("");
+                releaseFloorUI();
+                return;
+            }
 
             const payload = {
                 sender: myName,
@@ -418,16 +550,28 @@
                     event: 'message',
                     payload: payload
                 });
+                
+                // Explicitly send an empty preview out to release everybody's UI locks right away
+                broadcastPreview("");
             }
             
-            // Text boxes are ONLY wiped here after successfully firing out a manual submission
+            // CRITICAL RESET FIX: Zero out absolutely everything to wipe input fields clean
             inputField.value = "";
             accumulatedText = "";
+            stableText = "";
+            
+            // Clean local UI floor locks 
+            releaseFloorUI();
         }
 
         function receiveMessage(data) {
             const box = document.getElementById('conversation-box');
             
+            // Always clean floor constraints when a definitive finalized text payload drops in
+            if (data.sender === currentFloorHolder || data.sender === myName) {
+                releaseFloorUI();
+            }
+
             if (data.sender === "System") {
                 const sysDiv = document.createElement('div');
                 sysDiv.style.cssText = "background:#e9ecef; padding:10px; border-radius:8px; font-size:13px; text-align:center;";
